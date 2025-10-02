@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: (github.repository == 'astropy/repo_stats')
+    if: (github.repository == 'bilby-dev/repo_stats')
     permissions: 
       contents: write    
 

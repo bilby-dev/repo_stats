@@ -1,6 +1,8 @@
 Repo stats
 ----------
 
+This was forked from the Astropy project.
+
 Functionality to generate git statistics (e.g. commits, issues, pull requests) 
 of a repository using GitHub's GraphQL API, and citation statistics using the 
 NASA ADS publication database's API.
