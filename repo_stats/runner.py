@@ -7,7 +7,7 @@ import repo_stats
 
 # from dotenv import load_dotenv
 from repo_stats.citation_metrics import ADSCitations
-from repo_stats.git_metrics import GitMetrics
+from repo_stats.git_metrics import GitMetrics, correct_migrated_items
 from repo_stats.plot import (
     author_time_plot,
     citation_plot,
@@ -117,10 +117,38 @@ def main(*args):
     )
 
     commits = Gits.get_commits()
-    commit_stats = Gits.process_commits(commits, params["age_recent_commit"])
+    commit_stats = Gits.process_commits(
+        commits,
+        params["age_recent_commit"],
+        dedup=params.get("deduplicate_commits", False),
+    )
 
     issues = Gits.get_issues_PRs("issues")
     prs = Gits.get_issues_PRs("pullRequests")
+
+    # optionally undo the bulk closure of items imported during a migration to GitHub
+    migration = params.get("migration") or {}
+    if migration.get("bulk_close_date") is not None:
+        close_dates = {}
+        if migration.get("importer_logins"):
+            close_dates = Gits.get_migrated_close_dates(
+                migration["importer_logins"], before=migration["bulk_close_date"]
+            )
+        issues, n_issues = correct_migrated_items(
+            issues,
+            migration["bulk_close_date"],
+            close_dates,
+            migration.get("window_days", 1),
+        )
+        prs, n_prs = correct_migrated_items(
+            prs,
+            migration["bulk_close_date"],
+            close_dates,
+            migration.get("window_days", 1),
+        )
+        print(
+            f"  Corrected close dates of {n_issues} issues and {n_prs} pull requests bulk-closed during migration"
+        )
     issue_pr_stats = Gits.process_issues_PRs(
         [issues, prs],
         ["issues", "pullRequests"],
