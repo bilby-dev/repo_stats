@@ -16,8 +16,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # don't run on forks
-    if: ${{ !github.event.repository.fork }}
+    if: github.repository == 'bilby-dev/repo_stats'
     permissions:
       contents: write
 
