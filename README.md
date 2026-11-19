@@ -76,3 +76,7 @@ GitHub Pages. To enable it:
 2. In *Settings → Secrets and variables → Actions*, add an `ADS_TOKEN`
    repository secret holding a [NASA ADS API token](https://ui.adsabs.harvard.edu/help/api/).
    (`GITHUB_TOKEN` is provided automatically.)
+
+Pull requests to `main` run the same build with live data but don't deploy it;
+the built site is attached to the workflow run as the `stats-site-preview`
+artifact (download it and open `index.html`).

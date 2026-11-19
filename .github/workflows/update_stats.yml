@@ -7,11 +7,15 @@ on:
     - cron: "20 07 * * *"
   # allow manual triggering of workflow
   workflow_dispatch:
+  # build (but don't deploy) the site from live data so PRs can be reviewed
+  pull_request:
+    branches: [main]
 
-# only one Pages deployment at a time; don't cancel a run that is mid-deploy
+# only one Pages deployment at a time; don't cancel a run that is mid-deploy.
+# PR builds get their own group, and a newer push to the PR replaces an older build.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -72,15 +76,26 @@ jobs:
         run: |
           python site/build.py --cache cache --out _site
 
+      - name: Upload website for PR review
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: stats-site-preview
+          path: _site
+          retention-days: 14
+
       - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0
 
       - name: Upload website artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: _site
 
       - name: Create and push to orphan branch 'cache'
+        if: github.event_name != 'pull_request'
         run: |
           git remote set-url origin https://git:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
           git config --global user.name "github-actions-bot"
@@ -96,6 +111,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       pages: write
