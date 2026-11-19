@@ -104,10 +104,6 @@ h1, h2, h3, .wordmark { font-family: var(--serif); font-weight: 600; letter-spac
 .stat-label { font-size: .92rem; color: var(--ink); line-height: 1.35; }
 .stat-sub { font-size: .82rem; color: var(--muted); }
 
-.dashboard img {
-  width: 100%; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--line);
-}
-
 /* ------------------------------------------------------------ sections */
 .section { padding: 80px 0; }
 .plots { background: var(--bg-soft); border-top: 1px solid var(--line); }

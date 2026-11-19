@@ -148,19 +148,6 @@ def build(cache, out, owner, repo):
 
     used = []
 
-    dash_light = find_image(cache, f"{repo}_user_stats_light") or find_image(
-        cache, f"{repo}_user_stats_transparent"
-    )
-    dash_dark = find_image(cache, f"{repo}_user_stats_dark")
-    dashboard = ""
-    if dash_light is not None:
-        used += [p for p in (dash_light, dash_dark) if p]
-        dashboard = picture(
-            dash_light, dash_dark,
-            f"Summary of recent {repo} activity: contributors, issues, pull requests and citations",
-            out_img, "dashboard",
-        )
-
     cards = []
     for key, title, caption in FIGURES:
         light = find_image(cache, f"{repo}_{key}")
@@ -187,7 +174,6 @@ def build(cache, out, owner, repo):
         "updated_iso": updated.isoformat(timespec="seconds"),
         "updated": updated.strftime("%-d %B %Y"),
         "stat_tiles": stat_tiles(summary),
-        "dashboard": dashboard,
         "plot_cards": "\n".join(cards),
         "new_contributors": new_contributors(summary),
         "year": str(datetime.now(timezone.utc).year),
