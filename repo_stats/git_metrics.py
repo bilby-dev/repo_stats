@@ -281,6 +281,7 @@ class GitMetrics:
                                             email
                                             user {
                                                 databaseId
+                                                login
                                             }
                                         }
                                     }
@@ -435,6 +436,7 @@ class GitMetrics:
                 - 'age_recent_commit': the input arg 'age_recent'
                 - 'unique_authors': each commit author, their number of commits and index of first commit
                 - 'new_authors': list of authors with their first commit in 'age_recent'
+                - 'new_author_logins': GitHub username of each new author, where known
                 - 'n_recent_authors': number of authors with commits in 'age_recent'
                 - 'authors_per_month': number of commit authors per month, over time
                 - 'new_authors_per_month': number of new commit authors per month, over time
@@ -445,7 +447,7 @@ class GitMetrics:
             results = deduplicate_commits(results)
             print(f"  Removed {n_before - len(results)} duplicated commits")
 
-        dates, authors, userIDs = [], [], []
+        dates, authors, userIDs, logins = [], [], [], []
         bots = [
             "dependabot[bot]",
             "github-actions",
@@ -465,6 +467,8 @@ class GitMetrics:
                     userIDs.append(ii["node"]["author"]["user"]["databaseId"])
                 except TypeError:
                     userIDs.append(ii["node"]["author"]["name"])
+                # GitHub username (not in caches written before it was queried)
+                logins.append(((ii["node"]["author"].get("user") or {}).get("login")))
 
         print(f"  {len(dates)} total commits")
 
@@ -524,6 +528,12 @@ class GitMetrics:
         )
         new_authors_per_month = fill_missed_months(new_authors_per_month)
 
+        # GitHub username per (merged) author name, from their most recent commit that has one
+        author_logins = {}
+        for name, login in zip(authors[::-1], logins[::-1]):
+            if login:
+                author_logins[name] = login
+
         n_recent_authors, new_authors = 0, []
 
         for ii, jj in enumerate(unique_authors_last_commit[0]):
@@ -541,6 +551,7 @@ class GitMetrics:
             "age_recent_commit": age_recent,
             "unique_authors": unique_authors_first_commit,
             "new_authors": new_authors,
+            "new_author_logins": {a: author_logins[a] for a in new_authors if a in author_logins},
             "n_recent_authors": n_recent_authors,
             "authors_per_month": authors_per_month,
             "new_authors_per_month": new_authors_per_month,

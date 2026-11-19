@@ -529,3 +529,141 @@ def issue_PR_time_plot(issue_pr_stats, repo_owner, repo_name, cache_dir, window_
         return fig
 
     return _render(draw, cache_dir, f"{repo_name}_issues_PRs")
+
+
+def _grey_out_before(ax, until, t, label):
+    """Fade everything plotted on 'ax' before the date 'until' and label the span."""
+    left = ax.get_xlim()[0]
+    right = mdates.date2num(until)
+    if right <= left:
+        return
+    ax.axvspan(left, right, facecolor=t["bg"], alpha=0.7, lw=0, zorder=3)
+    ax.axvspan(left, right, facecolor=t["muted"], alpha=0.08, lw=0, zorder=3)
+    ax.axvline(right, color=t["axis"], lw=1, ls=(0, (3, 3)), zorder=4)
+    ax.set_xlim(left=left)
+    ax.text(
+        (left + right) / 2,
+        0.55,
+        label,
+        transform=ax.get_xaxis_transform(),
+        ha="center",
+        va="center",
+        fontsize=11,
+        color=t["muted"],
+        zorder=5,
+    )
+
+
+def activity_time_plot(
+    commit_stats,
+    issue_pr_stats,
+    repo_owner,
+    repo_name,
+    cache_dir,
+    window_avg=7,
+    github_start=None,
+):
+    """
+    Plot pull requests, issues and commit authors over time as three stacked panels.
+
+    Arguments
+    ---------
+    commit_stats : dict
+        Commit statistics (see `git_metrics.GitMetrics.process_commits`)
+    issue_pr_stats : dict
+        Statistics for issues and pull requests (see `git_metrics.GitMetrics.process_issues_PRs`)
+    repo_owner : str
+        Owner of repository (for labels)
+    repo_name : str
+        Name of repository (for labels and figure savename)
+    cache_dir : str
+        Name of directory in which to cache figure
+    window_avg : int, default=7
+        Number of months for rolling average. Enforced to be odd.
+    github_start : str, optional
+        Date ('YYYY-MM-DD') the repository moved to GitHub. Pull requests before this
+        date are greyed out, as they were merge requests elsewhere and are not counted.
+
+    Returns
+    -------
+    fig : `plt.figure` instance
+        The generated (light theme) figure
+    """
+    print("\nMaking figure: activity over time")
+
+    if window_avg % 2 == 0:
+        window_avg -= 1
+    if github_start is not None:
+        github_start = datetime.strptime(str(github_start)[:10], "%Y-%m-%d")
+
+    # don't include current month (if it's early in the month, result biased low)
+    def trim(x):
+        return [y[:-1] for y in x]
+
+    item_panels = [
+        ("Pull requests", trim(issue_pr_stats["pullRequests"]["open_per_month"]),
+         trim(issue_pr_stats["pullRequests"]["close_per_month"])),
+        ("Issues", trim(issue_pr_stats["issues"]["open_per_month"]),
+         trim(issue_pr_stats["issues"]["close_per_month"])),
+    ]
+    author_series = [
+        ("All authors", trim(commit_stats["authors_per_month"])),
+        ("Authors with >1 commit", trim(commit_stats["multi_authors_per_month"])),
+        ("New authors", trim(commit_stats["new_authors_per_month"])),
+    ]
+
+    def panel_title(ax, title, t):
+        ax.text(
+            0.005, 0.97, title, transform=ax.transAxes, ha="left", va="top",
+            fontsize=13, fontweight="semibold", color=t["ink"], zorder=6,
+        )
+
+    def draw(t):
+        fig, axes = plt.subplots(
+            3, 1, figsize=(10, 10.5), sharex=True, layout="constrained"
+        )
+        opened_c, closed_c = t["series"][0], t["series"][1]
+        author_c = t["series"][2:5]
+
+        for ax, (title, opened, closed) in zip(axes[:2], item_panels):
+            _monthly_series(ax, *opened, opened_c, window_avg)
+            _monthly_series(ax, *closed, closed_c, window_avg)
+            panel_title(ax, title, t)
+            ax.set_ylabel("Per month")
+
+        ax = axes[2]
+        for color, (label, (months, values)) in zip(author_c, author_series):
+            _monthly_series(ax, months, values, color, window_avg)
+        panel_title(ax, "Commit authors", t)
+        ax.set_ylabel("Authors per month")
+
+        for ax in axes:
+            ax.set_ylim(bottom=0)
+            ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+            _date_axis(ax)
+        for ax in axes[:2]:
+            ax.tick_params(axis="x", which="both", length=0)
+
+        if github_start is not None:
+            _grey_out_before(axes[0], github_start, t, "Merge requests on GitLab\n(not counted)")
+
+        _titles(
+            axes[0],
+            f"Activity in {repo_owner}/{repo_name}",
+            f"Per month · generated {_generated_on()}",
+            t,
+        )
+        handles = [
+            Line2D([], [], color=opened_c, label="Opened"),
+            Line2D([], [], color=closed_c, label="Closed"),
+        ] + [
+            Line2D([], [], color=c, label=label)
+            for c, (label, _) in zip(author_c, author_series)
+        ] + _style_handles(t, window_avg)
+        fig.legend(
+            handles=handles, loc="outside lower center", ncol=4,
+            handlelength=1.8, columnspacing=1.6,
+        )
+        return fig
+
+    return _render(draw, cache_dir, f"{repo_name}_activity")

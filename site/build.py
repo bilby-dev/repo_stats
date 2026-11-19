@@ -23,24 +23,19 @@ DEFAULT_PARAMS = SITE_DIR.parent / "repo_stats" / "parameters.json"
 # (file key, title, caption) for each plot, in display order
 FIGURES = [
     (
-        "issues_PRs",
-        "Issues and pull requests",
-        "Issues and pull requests opened and closed each month, with a rolling average.",
-    ),
-    (
-        "open_items",
-        "Open items by label",
-        "Currently open issues and pull requests, broken down by label.",
-    ),
-    (
-        "authors",
-        "Contributors",
-        "Unique commit authors each month, authors with more than one commit, and first-time contributors.",
+        "activity",
+        "Pull requests, issues and contributors",
+        "Pull requests and issues opened and closed, and commit authors, each month with a rolling average.",
     ),
     (
         "citations",
         "Citations",
         "Papers citing the bilby papers each year, from NASA ADS.",
+    ),
+    (
+        "open_items",
+        "Open items by label",
+        "Currently open issues and pull requests, broken down by label.",
     ),
 ]
 
@@ -111,7 +106,18 @@ def new_contributors(summary):
     if not names:
         return ""
     days = summary.get("age_recent_commit") or 90
-    chips = "".join(f"<li>{escape(n)}</li>" for n in names)
+    logins = (summary or {}).get("new_author_logins") or {}
+    chips = []
+    for name in names:
+        login = logins.get(name)
+        if login:
+            chips.append(
+                f'<li><a href="https://github.com/{escape(login)}" '
+                f'title="@{escape(login)} on GitHub">{escape(name)}</a></li>'
+            )
+        else:
+            chips.append(f"<li>{escape(name)}</li>")
+    chips = "".join(chips)
     return (
         '<div class="welcome"><h2 class="welcome-title">Welcome, new contributors</h2>'
         f"<p>First commits in the last {days} days. Thank you!</p>"

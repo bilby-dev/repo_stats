@@ -32,8 +32,7 @@ Written to `cache/` (or the directory passed with `-c`), where `<repo>` is
 | --- | --- |
 | `<repo>_user_stats_{light,dark,transparent}.png` | Summary dashboard |
 | `<repo>_citations.{png,svg}` | Refereed citations per year |
-| `<repo>_authors.{png,svg}` | Commit authors per month |
-| `<repo>_issues_PRs.{png,svg}` | Issues and PRs opened/closed per month |
+| `<repo>_activity.{png,svg}` | PRs and issues opened/closed, and commit authors, per month |
 | `<repo>_open_items.{png,svg}` | Currently open issues and PRs per label |
 
 Each plot also has a `_dark` variant (e.g. `<repo>_citations_dark.png`) for

@@ -9,9 +9,8 @@ import repo_stats
 from repo_stats.citation_metrics import ADSCitations
 from repo_stats.git_metrics import GitMetrics, correct_migrated_items
 from repo_stats.plot import (
-    author_time_plot,
+    activity_time_plot,
     citation_plot,
-    issue_PR_time_plot,
     open_issue_PR_plot,
 )
 from repo_stats.summary import write_summary
@@ -171,22 +170,16 @@ def main(*args):
         cite_stats, params["repo_name"], params["cache_dir"], params["bib_names"]
     )
 
-    author_time_plot(
-        commit_stats,
-        params["repo_owner"],
-        params["repo_name"],
-        params["cache_dir"],
-        params["window_avg"],
-    )
-
     open_issue_PR_plot(issue_pr_stats, params["repo_name"], params["cache_dir"])
 
-    issue_PR_time_plot(
+    activity_time_plot(
+        commit_stats,
         issue_pr_stats,
         params["repo_owner"],
         params["repo_name"],
         params["cache_dir"],
         params["window_avg"],
+        github_start=migration.get("bulk_close_date"),
     )
 
 

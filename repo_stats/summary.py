@@ -49,6 +49,7 @@ def write_summary(stats, repo_owner, repo_name, cache_dir):
         "n_authors": n_authors,
         "n_recent_authors": as_int(get("n_recent_authors")),
         "new_authors": sorted((str(a) for a in new_authors), key=str.lower),
+        "new_author_logins": dict(get("new_author_logins") or {}),
         "issues_recent_open": as_int(get("issues", "recent_open")),
         "issues_recent_close": as_int(get("issues", "recent_close")),
         "prs_recent_open": as_int(get("pullRequests", "recent_open")),
