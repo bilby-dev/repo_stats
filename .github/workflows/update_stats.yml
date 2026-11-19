@@ -11,7 +11,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: (github.repository == 'astropy/repo_stats')
+    # don't run on forks
+    if: ${{ !github.event.repository.fork }}
     permissions:
       contents: write
 

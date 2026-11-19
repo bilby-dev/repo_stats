@@ -8,7 +8,8 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: (github.repository == 'astropy/repo_stats')
+    # don't run on forks
+    if: ${{ !github.event.repository.fork }}
 
     steps:
       - name: Check out repo

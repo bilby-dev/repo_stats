@@ -87,7 +87,7 @@ def parse_parameters(*args):
             f"{repo_stats_path}/../dashboard_template/user_stats_template_light.png",
         ]
     params["template_image"] = list(params["template_image"])
-    params["font"] = f"{repo_stats_path}/../dashboard_template/Jost[wght].ttf"
+    params["font"] = f"{repo_stats_path}/../dashboard_template/SourceSans3-Regular.ttf"
 
     return params
 
