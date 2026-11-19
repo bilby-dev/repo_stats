@@ -140,7 +140,7 @@ def citation_plot(cite_stats, repo_name, cache_dir, names=None):
             line.set_linestyle("--")
 
         plt.plot(
-            cites[0][-1],
+            cites[0][-2] + days_passed / 365,
             cites[1][-1],
             marker=ms[-2],
             c=cs[ii],

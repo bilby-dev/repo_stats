@@ -1,5 +1,6 @@
 # Directory for cached data retrieved from NASA ADS and GitHub GraphQL APIs
 cache/
+tokens
 
 **/.DS_Store
 *.egg
