@@ -8,5 +8,7 @@
     "labels": "List of GitHub labels for which issue and pull request occurrences will be counted",
     "bibs": "List of bibcodes for papers for which citation stats will be obtained",
     "bib_names": "List of preferred names of these papers (used for plots)",
-    "ads_metrics": "String of citation metrics to collect for each citation from ADS database (see # citation metrics (see https://ui.adsabs.harvard.edu/help/api/api-docs.html#tag--search)"
+    "ads_metrics": "String of citation metrics to collect for each citation from ADS database (see # citation metrics (see https://ui.adsabs.harvard.edu/help/api/api-docs.html#tag--search)",
+    "deduplicate_commits": "Whether to drop duplicated commits (different SHAs with the same author and identical author timestamp, e.g. rebased or cherry-picked copies). Optional, default false",
+    "migration": "Optional; null or omitted for no correction. For repositories migrated to GitHub (e.g. from GitLab) whose imported issues were all closed at once: 'bulk_close_date' (\"YYYY-MM-DD\") of the bulk closure, 'window_days' it lasted (default 1), and 'importer_logins', the GitHub account(s) that created the imported issues, used to recover original close dates from imported 'closed' notes. Bulk-closed items without a recovered date are excluded from closures per month"
 }

@@ -32,7 +32,7 @@ def rolling_average(unaveraged, window):
     return roll_avg, window
 
 
-def fill_missed_months(unique_output):
+def fill_missed_months(unique_output, oldest=None):
     """
     For an output of 'np.unique(x, return_counts=True)' where 'x' is a list of dates of the format '2024-01', fill in months missing in this list and set their count to 0.
 
@@ -40,6 +40,9 @@ def fill_missed_months(unique_output):
     ---------
     unique_output : tuple of array
         Output of 'np.unique'
+    oldest : str, default=None
+        First month (format '2024-01') of the output. If None, the oldest entry in 'unique_output'.
+        Use to give several series a common range of months
 
     Returns
     -------
@@ -47,11 +50,18 @@ def fill_missed_months(unique_output):
         The input updated with inserted entries for missing months
     """
     unique_output = list(unique_output)
+    if len(unique_output[0]) == 0 and oldest is not None:
+        # e.g. no items closed yet; 'np.unique([])' returns float arrays
+        unique_output = [np.array([], dtype="<U7"), np.array([], dtype=int)]
 
     now = datetime.now(timezone.utc)
 
     # build list of 'year-month' from oldest entry in 'unique_output' to current month
-    oldest, newest = min(unique_output[0]), f"{now.year}-{now.month:02d}"
+    if oldest is None:
+        oldest = min(unique_output[0])
+    elif len(unique_output[0]) > 0:
+        oldest = min(oldest, min(unique_output[0]))
+    newest = f"{now.year}-{now.month:02d}"
     years = [str(y) for y in list(range(int(oldest[:4]), int(newest[:4]) + 1))]
     months = [f"{m:02d}" for m in list(range(1, 13))]
     dates = []
