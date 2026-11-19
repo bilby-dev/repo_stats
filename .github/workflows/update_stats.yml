@@ -1,73 +1,106 @@
-name: Update cache branch
+name: Update cache branch and stats site
 
-# on: push 
+# on: push
 on:
   schedule:
     # workflow may be delayed for longer when it's on the hour
     - cron: "20 07 * * *"
   # allow manual triggering of workflow
   workflow_dispatch:
+  # build (but don't deploy) the site from live data so PRs can be reviewed
+  pull_request:
+    branches: [main]
+
+# only one Pages deployment at a time; don't cancel a run that is mid-deploy.
+# PR builds get their own group, and a newer push to the PR replaces an older build.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: (github.repository == 'bilby-dev/repo_stats')
-    permissions: 
-      contents: write    
+    if: github.repository == 'bilby-dev/repo_stats'
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repo
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c  # v6.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: 3.11
 
-      - name: Display system info        
+      - name: Display system info
         run: |
           python -c "import os; os.getcwd()"
           python -c "import sys; print(sys.version)"
 
       - name: Install package
-        run: | 
+        run: |
           pip install setuptools --upgrade
           pip install .
 
-      # 10/11/2024: skipping cache save/restore as the cache isn't being properly restored, 
+      # 10/11/2024: skipping cache save/restore as the cache isn't being properly restored,
       # and this only takes a few minutes to run
       # cache key syntax: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/caching-dependencies-to-speed-up-workflows#using-contexts-to-create-cache-keys
       # - name: Restore cached files
       #   id: cache-files-restore
-      #   uses: actions/cache/restore@2cdf405574d6ef1f33a1d12acccd3ae82f47b3f2  # v4.1.0
-      #   with: 
+      #   uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      #   with:
       #     path: ./cache
       #     key: ${{ runner.os }}-${{ hashFiles('~/.cache_key') }}
 
       - name: Run update script
         run: |
-          python -m repo_stats.runner -a ${{ secrets.ADS_TOKEN }} -g ${{ secrets.GITHUB_TOKEN }} -c "cache" 
+          python -m repo_stats.runner -a ${{ secrets.ADS_TOKEN }} -g ${{ secrets.GITHUB_TOKEN }} -c "cache"
 
       # caches are immutable, so create a new one (new key) each time any of the files being cached change.
       # the cache key will be new if any files in the cache path have been changed by 'repo_stats.runner'.
       # otherwise the cache save will 'fail' (because there's no need to update it - that's fine)
       # - name: Update cached files
       #   id: cache-files-save
-      #   uses: actions/cache/save@2cdf405574d6ef1f33a1d12acccd3ae82f47b3f2  # v4.1.0
+      #   uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       #   with:
       #     path: ./cache
       #     key: ${{ runner.os }}-${{ hashFiles('./cache') }}
 
-      # - name: Save cache key 
+      # - name: Save cache key
       #   run: |
       #     echo ${{ hashFiles('./cache') }} >> ~/.cache_key
 
-      - name: Create and push to orphan branch 'cache' 
-        run: |          
+      # build the website before the orphan-branch step below removes the checkout
+      - name: Build stats website
+        run: |
+          python site/build.py --cache cache --out _site
+
+      - name: Upload website for PR review
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: stats-site-preview
+          path: _site
+          retention-days: 14
+
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0
+
+      - name: Upload website artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: _site
+
+      - name: Create and push to orphan branch 'cache'
+        if: github.event_name != 'pull_request'
+        run: |
           git remote set-url origin https://git:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git
           git config --global user.name "github-actions-bot"
           git config --global user.email "support+actions@github.com"
-          git checkout --orphan cache 
+          git checkout --orphan cache
           git rm -rf .
           git add cache
           git commit -m "update cache"
@@ -75,3 +108,19 @@ jobs:
 
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

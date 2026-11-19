@@ -1,5 +1,6 @@
 # Directory for cached data retrieved from NASA ADS and GitHub GraphQL APIs
 cache/
+tokens
 
 **/.DS_Store
 *.egg
@@ -143,7 +144,7 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
+/_site
 
 # mypy
 .mypy_cache/

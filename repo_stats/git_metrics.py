@@ -1,12 +1,167 @@
 import os
+import re
+import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import subprocess
 import requests
 import numpy as np
 import ast
 
 from repo_stats.utilities import fill_missed_months, update_cache
+
+
+# Body of an issue/comment created by a GitLab -> GitHub importer, e.g.
+# "In GitLab by @git.ligo:jane.doe on Apr 26, 2018, 04:27\n\nclosed"
+GITLAB_NOTE_RE = re.compile(r"^In GitLab by @\S+ on [^\n]*\n\n(?P<text>.*)$", re.S)
+
+
+# GitLab system notes made while preparing a migration (not activity on the item itself)
+GITLAB_HOUSEKEEPING = (
+    "unassigned ",
+    "assigned to ",
+    "added ~",
+    "removed ~",
+    "changed milestone",
+    "removed milestone",
+    "changed the description",
+    "changed title",
+    "marked ",
+)
+
+
+def original_close_date(comments, before=None, fallback_last_activity=True):
+    """
+    Recover the date an issue migrated from GitLab was originally closed, from its imported comments.
+
+    GitLab system notes ("closed", "closed via merge request !12", "reopened", ...) are imported
+    as ordinary comments whose GitHub 'createdAt' is the original GitLab timestamp.
+    Some imported issues have no 'closed' note; for these the date of the last imported comment
+    (excluding housekeeping notes such as "unassigned @user", see 'GITLAB_HOUSEKEEPING') is used
+    as a proxy if 'fallback_last_activity' is True.
+
+    Arguments
+    ---------
+    comments : list of dict
+        Imported comments, each with keys 'createdAt' and 'body'
+    before : str, default=None
+        Only consider comments created before this date (format "2024-01-01..."), e.g. the migration date
+    fallback_last_activity : bool, default=True
+        Whether to fall back to the last imported activity if no 'closed' note is found
+
+    Returns
+    -------
+    date : str or None
+        'createdAt' of the last 'closed' note not followed by a 'reopened' note
+        (or the fallback); None if not found or if reopened at the source
+    """
+    date, last_activity, reopened = None, None, False
+    for comment in sorted(comments, key=lambda c: c["createdAt"]):
+        if before is not None and comment["createdAt"][:10] >= before[:10]:
+            continue
+        match = GITLAB_NOTE_RE.match(comment["body"] or "")
+        if match is None:
+            continue
+        text = match.group("text").strip().lower()
+        if text == "closed" or text.startswith("closed via "):
+            date, reopened = comment["createdAt"], False
+        elif text == "reopened":
+            date, reopened = None, True
+        if not text.startswith(GITLAB_HOUSEKEEPING):
+            last_activity = comment["createdAt"]
+
+    if date is None and fallback_last_activity and not reopened:
+        date = last_activity
+    return date
+
+
+def correct_migrated_items(items, bulk_close_date, close_dates=None, window_days=1):
+    """
+    Undo the bulk closure of issues/PRs imported during a repository migration (e.g. GitLab -> GitHub).
+
+    Importers typically recreate each item with its original 'createdAt', but close every item that was
+    already closed at the source at the time of the migration, piling hundreds of closures into a single
+    day. Items created before 'bulk_close_date' and closed within 'window_days' of it are treated as
+    bulk-closed: their 'closedAt' is replaced by the original close date from 'close_dates' if known,
+    otherwise set to None (closed at an unknown date, so not counted in closures per month).
+
+    Arguments
+    ---------
+    items : list of dict
+        Issues or pull requests as returned by `GitMetrics.get_issues_PRs`
+    bulk_close_date : str or None
+        Date (format "2024-01-01") of the bulk closure. If None, 'items' is returned unchanged
+    close_dates : dict, default=None
+        Map of item number (int) to original close date (str, or None if unknown) for items created by the
+        migration's importer. If given, only these items are corrected, so items created on GitHub
+        shortly before the migration and closed during it are left alone
+    window_days : int, default=1
+        Number of days from 'bulk_close_date' over which the bulk closure took place
+
+    Returns
+    -------
+    corrected : list of dict
+        Copy of 'items' with corrected 'closedAt' for bulk-closed items
+    n_corrected : int
+        Number of items whose 'closedAt' was changed
+    """
+    if bulk_close_date is None:
+        return items, 0
+    importer_known = bool(close_dates)
+    close_dates = close_dates or {}
+
+    start = bulk_close_date[:10]
+    end = (
+        datetime.strptime(start, "%Y-%m-%d") + timedelta(days=window_days)
+    ).strftime("%Y-%m-%d")
+
+    corrected, n_corrected = [], 0
+    for item in items:
+        node = item["node"]
+        closed = node.get("closedAt")
+        if (
+            closed is not None
+            and node["createdAt"][:10] < start
+            and start <= closed[:10] < end
+            and (not importer_known or node["number"] in close_dates)
+        ):
+            item = {**item, "node": {**node, "closedAt": close_dates.get(node["number"])}}
+            n_corrected += 1
+        corrected.append(item)
+
+    return corrected, n_corrected
+
+
+def deduplicate_commits(commits):
+    """
+    Remove duplicated commits: different SHAs with the same author and identical author timestamp.
+
+    Rebased or cherry-picked copies of a commit (e.g. histories merged twice during a migration)
+    keep the original author and author date but get a new SHA, so would otherwise be double counted.
+
+    Arguments
+    ---------
+    commits : list of dict
+        A dictionary entry for each commit in the history (see `GitMetrics.get_commits`)
+
+    Returns
+    -------
+    unique : list of dict
+        'commits' with only the first occurrence of each (author, authoredDate) kept
+    """
+    seen, unique = set(), []
+    for commit in commits:
+        node = commit["node"]
+        author = node["author"] or {}
+        key = (
+            (author.get("email") or author.get("name") or "").lower(),
+            node["authoredDate"],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(commit)
+    return unique
 
 
 class GitMetrics:
@@ -126,6 +281,7 @@ class GitMetrics:
                                             email
                                             user {
                                                 databaseId
+                                                login
                                             }
                                         }
                                     }
@@ -260,7 +416,7 @@ class GitMetrics:
 
         return dates, authors
 
-    def process_commits(self, results, age_recent=90):
+    def process_commits(self, results, age_recent=90, dedup=False):
         """
         Process (obtain statistics for) git commit data
 
@@ -270,6 +426,8 @@ class GitMetrics:
             A dictionary entry for each commit in the history (see `Git_metrics.get_commits`)
         age_recent : int, default=90
             Days before present used to categorize recent commit statistics
+        dedup : bool, default=False
+            Whether to drop duplicated commits (see `deduplicate_commits`)
 
         Returns
         -------
@@ -278,12 +436,18 @@ class GitMetrics:
                 - 'age_recent_commit': the input arg 'age_recent'
                 - 'unique_authors': each commit author, their number of commits and index of first commit
                 - 'new_authors': list of authors with their first commit in 'age_recent'
+                - 'new_author_logins': GitHub username of each new author, where known
                 - 'n_recent_authors': number of authors with commits in 'age_recent'
                 - 'authors_per_month': number of commit authors per month, over time
                 - 'new_authors_per_month': number of new commit authors per month, over time
                 - 'multi_authors_per_month': number of commit authors per month with >1 commit that month, over time
         """
-        dates, authors, userIDs = [], [], []
+        if dedup:
+            n_before = len(results)
+            results = deduplicate_commits(results)
+            print(f"  Removed {n_before - len(results)} duplicated commits")
+
+        dates, authors, userIDs, logins = [], [], [], []
         bots = [
             "dependabot[bot]",
             "github-actions",
@@ -303,6 +467,8 @@ class GitMetrics:
                     userIDs.append(ii["node"]["author"]["user"]["databaseId"])
                 except TypeError:
                     userIDs.append(ii["node"]["author"]["name"])
+                # GitHub username (not in caches written before it was queried)
+                logins.append(((ii["node"]["author"].get("user") or {}).get("login")))
 
         print(f"  {len(dates)} total commits")
 
@@ -362,6 +528,12 @@ class GitMetrics:
         )
         new_authors_per_month = fill_missed_months(new_authors_per_month)
 
+        # GitHub username per (merged) author name, from their most recent commit that has one
+        author_logins = {}
+        for name, login in zip(authors[::-1], logins[::-1]):
+            if login:
+                author_logins[name] = login
+
         n_recent_authors, new_authors = 0, []
 
         for ii, jj in enumerate(unique_authors_last_commit[0]):
@@ -379,6 +551,7 @@ class GitMetrics:
             "age_recent_commit": age_recent,
             "unique_authors": unique_authors_first_commit,
             "new_authors": new_authors,
+            "new_author_logins": {a: author_logins[a] for a in new_authors if a in author_logins},
             "n_recent_authors": n_recent_authors,
             "authors_per_month": authors_per_month,
             "new_authors_per_month": new_authors_per_month,
@@ -530,6 +703,100 @@ class GitMetrics:
 
         return all_items
 
+    def get_migrated_close_dates(self, importer_logins, before=None):
+        """
+        Obtain the original close dates of issues imported from GitLab by 'importer_logins', from the
+        imported GitLab 'closed'/'reopened' notes (see `original_close_date`). Results are cached, as
+        imported items don't change.
+
+        Arguments
+        ---------
+        importer_logins : list of str
+            GitHub logins of the account(s) that created the imported issues (e.g. a migration bot)
+        before : str, default=None
+            Ignore imported comments created on or after this date (e.g. the migration date)
+
+        Returns
+        -------
+        close_dates : dict
+            Map of issue number (int) to original close date (str, or None if not found)
+        """
+        print("\nCollecting original close dates of migrated issues")
+
+        cache_file = f"{self.cache_dir}/{self.repo_name}_migrated_close_dates.json"
+        if os.path.exists(cache_file):
+            with open(cache_file, "r") as f:
+                close_dates = {int(k): v for k, v in json.load(f).items()}
+            print(f"  {len(close_dates)} migrated issues found in cache at {cache_file}")
+            return close_dates
+
+        query = """
+        query($owner: String!, $name: String!, $after: String, $login: String!) {
+            repository(owner: $owner, name: $name) {
+                issues(first: 50, after: $after, filterBy: {createdBy: $login}) {
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
+                    nodes {
+                        number
+                        comments(last: 100) {
+                            nodes {
+                                createdAt
+                                body
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        headers = {"Authorization": f"token {self.token}"}
+
+        close_dates = {}
+        for login in importer_logins:
+            variables = {
+                "owner": self.repo_owner,
+                "name": self.repo_name,
+                "after": None,
+                "login": login,
+            }
+            hasNextPage = True
+            while hasNextPage is True:
+                response = requests.post(
+                    "https://api.github.com/graphql",
+                    json={"query": query, "variables": variables},
+                    headers=headers,
+                )
+                if response.status_code != 200:
+                    raise Exception(
+                        f"Query failed -- return code {response.status_code}"
+                    )
+                result = response.json()
+                try:
+                    issues = result["data"]["repository"]["issues"]
+                except (KeyError, TypeError) as err:
+                    print(f"Query syntax is likely wrong. Reponse to query: {result}")
+                    raise err
+
+                for node in issues["nodes"]:
+                    close_dates[node["number"]] = original_close_date(
+                        node["comments"]["nodes"], before=before
+                    )
+                print(
+                    f"\r  Retrieved {len(close_dates)} migrated issues",
+                    end="",
+                    flush=True,
+                )
+                hasNextPage = issues["pageInfo"]["hasNextPage"]
+                variables["after"] = issues["pageInfo"]["endCursor"]
+        print("")
+
+        with open(cache_file, "w") as f:
+            json.dump(close_dates, f, indent=0)
+
+        return close_dates
+
     def process_issues_PRs(self, results, items, labels, age_recent=90):
         """
         Process (obtain statistics for) and aggregate issue and pull request data in 'results'.
@@ -558,6 +825,10 @@ class GitMetrics:
         """
         issues_prs = {}
 
+        # common first month for all series, so they align when plotted against month labels
+        created = [jj["node"]["createdAt"][:7] for ii in results for jj in ii]
+        oldest = min(created) if created else None
+
         for hh, ii in enumerate(results):
             recent_open, recent_close, date_open, date_close = 0, 0, [], []
             label_open_items = np.zeros(len(labels))
@@ -565,7 +836,12 @@ class GitMetrics:
             for jj in ii:
                 # store dates as year-month e.g. '2024-01'
                 date_open.append(jj["node"]["createdAt"][:7])
-                if not jj["node"]["state"] == "OPEN":
+                # 'closedAt' may be None for a closed item whose close date is unknown
+                # (see `correct_migrated_items`)
+                if (
+                    not jj["node"]["state"] == "OPEN"
+                    and jj["node"]["closedAt"] is not None
+                ):
                     date_close.append(jj["node"]["closedAt"][:7])
 
                 # store age as days before present
@@ -592,8 +868,8 @@ class GitMetrics:
             close_per_month = np.unique(date_close, return_counts=True)
             # not every month has newly opened/closed issues/PRs,
             # so insert missed months
-            open_per_month = fill_missed_months(open_per_month)
-            close_per_month = fill_missed_months(close_per_month)
+            open_per_month = fill_missed_months(open_per_month, oldest)
+            close_per_month = fill_missed_months(close_per_month, oldest)
 
             issues_prs[items[hh]] = {
                 "age_recent": age_recent,

@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "repo_stats"
 description = "Repository and citation statistics"
 dynamic = ["version"]
-readme = { file = "README.rst", content-type = "text/x-rst" }
+readme = { file = "README.md", content-type = "text/markdown" }
 license = { file = "LICENSE.rst", content-type = "text/plain" }
 authors = [
-  { name = "The Astropy Developers", email = "astropy.team@gmail.com" },
+  { name = "The bilby developers" },
 ]
 requires-python = ">=3.10"
 dependencies = ["matplotlib>=3.8.4", "numpy>=1.24", "pillow>=10.4.0", "requests>=2.32.2"]

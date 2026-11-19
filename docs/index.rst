@@ -9,4 +9,4 @@ Welcome to the `repo_stats` docs!
 
     API <py_API>
     Index <genindex>
-    GitHub repo <https://github.com/astropy/repo_stats>
+    bilby <https://github.com/bilby-dev/bilby>

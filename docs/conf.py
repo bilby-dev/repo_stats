@@ -14,7 +14,7 @@ from repo_stats import __version__
 release = __version__
 
 project = "repo_stats"
-author = "The Astropy Developers"
+author = "The bilby developers"
 copyright = f"{datetime.datetime.now().year}, {author}"  # noqa: A001
 
 # -- General configuration ---------------------------------------------------
@@ -82,3 +82,6 @@ html_static_path = ["_static"]
 autoclass_content = "both"
 
 # -- Other options ----------------------------------------------------------
+
+html_logo = "_static/bilby_logo.jpg"
+html_favicon = "_static/bilby_logo.jpg"

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${repo} project stats</title>
+  <meta name="description" content="Commits, contributors, issues, pull requests and citations for ${owner}/${repo}, updated daily.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="static/bilby-logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&display=swap">
+  <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="https://bilby-dev.github.io/" aria-label="bilby home">
+        <img src="static/bilby-logo.jpg" alt="" width="40" height="40">
+        <span class="wordmark">bilby</span>
+      </a>
+      <a class="version" href="./" title="Project statistics">stats</a>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-controls="site-nav" aria-expanded="false"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="visually-hidden">Menu</span></button>
+      <nav id="site-nav" class="site-nav" aria-label="Main">
+        <a href="https://bilby-dev.github.io/bilby/">Documentation</a><a href="https://bilby-dev.github.io/examples/">Examples</a><a href="./" aria-current="page">Stats</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="summary" aria-labelledby="page-title">
+      <div class="hero-rings" aria-hidden="true"></div>
+      <div class="wrap hero-inner">
+        <h1 id="page-title">Project statistics</h1>
+        <p class="lede">Commits, contributors, issues, pull requests and citations for
+          <a href="https://github.com/${owner}/${repo}">${owner}/${repo}</a>.</p>
+        <p class="updated">Last updated <time datetime="${updated_iso}">${updated}</time></p>
+        ${stat_tiles}
+      </div>
+    </section>
+
+    <section class="section plots" id="plots" aria-labelledby="plots-title">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="plots-title" class="section-title">Activity over time</h2>
+        </div>
+        <div class="plot-grid">
+${plot_cards}
+        </div>
+        ${new_contributors}
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <img src="static/bilby-logo.jpg" alt="" width="48" height="48">
+        <div>
+          <span class="wordmark">bilby</span>
+          <p>bilby is released under the MIT licence.<br>Statistics generated with repo_stats.</p>
+        </div>
+      </div>
+      <nav class="footer-links" aria-label="Footer">
+        <div><h3>Learn</h3><a href="https://bilby-dev.github.io/bilby/">Documentation</a><a href="https://bilby-dev.github.io/examples/">Examples</a><a href="https://bilby-dev.github.io/bilby/installation.html">Installation</a></div>
+        <div><h3>Project</h3><a href="https://github.com/${owner}/${repo}">GitHub</a><a href="https://pypi.org/project/bilby/">PyPI</a><a href="https://anaconda.org/conda-forge/bilby">conda-forge</a></div>
+        <div><h3>Community</h3><a href="https://github.com/${owner}/${repo}/discussions">Discussions</a><a href="https://github.com/${owner}/${repo}/issues">Issues</a><a href="https://bilby-dev.github.io/bilby/contribution-guide.html">Contributing</a></div>
+      </nav>
+    </div>
+    <p class="wrap footer-note">Data from the GitHub GraphQL API and NASA ADS. Last updated ${updated}.</p>
+  </footer>
+
+  <dialog class="lightbox" id="lightbox" aria-label="Full-size plot">
+    <button class="lightbox-close" type="button" aria-label="Close">&times;</button>
+    <div class="lightbox-inner"><img alt=""></div>
+  </dialog>
+
+  <script>
+    (function () {
+      var box = document.getElementById("lightbox");
+      if (!box || !box.showModal) return;
+      var img = box.querySelector("img");
+      function close() { box.close(); }
+      document.querySelectorAll(".plot-media").forEach(function (link) {
+        link.addEventListener("click", function (e) {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+          e.preventDefault();
+          var thumb = link.querySelector("img");
+          // currentSrc follows the light/dark <source> the page is showing
+          img.src = thumb.currentSrc || thumb.src;
+          img.alt = thumb.alt;
+          box.showModal();
+          document.body.classList.add("lightbox-open");
+        });
+      });
+      box.addEventListener("close", function () { document.body.classList.remove("lightbox-open"); });
+      box.querySelector(".lightbox-close").addEventListener("click", close);
+      box.querySelector(".lightbox-inner").addEventListener("click", function (e) {
+        if (e.target !== img) close();
+      });
+    })();
+    document.querySelectorAll("[data-nav-toggle]").forEach(function (button) {
+      var nav = document.getElementById(button.getAttribute("aria-controls"));
+      button.addEventListener("click", function () {
+        var open = button.getAttribute("aria-expanded") !== "true";
+        button.setAttribute("aria-expanded", open);
+        nav.classList.toggle("open", open);
+      });
+      nav.addEventListener("click", function (e) {
+        if (e.target.closest("a")) { button.setAttribute("aria-expanded", "false"); nav.classList.remove("open"); }
+      });
+    });
+  </script>
+</body>
+</html>

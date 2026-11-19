@@ -7,13 +7,13 @@ import repo_stats
 
 # from dotenv import load_dotenv
 from repo_stats.citation_metrics import ADSCitations
-from repo_stats.git_metrics import GitMetrics
+from repo_stats.git_metrics import GitMetrics, correct_migrated_items
 from repo_stats.plot import (
-    author_time_plot,
+    activity_time_plot,
     citation_plot,
-    issue_PR_time_plot,
     open_issue_PR_plot,
 )
+from repo_stats.summary import write_summary
 from repo_stats.user_stats import StatsImage
 
 repo_stats_path = os.path.dirname(repo_stats.__file__)
@@ -87,7 +87,7 @@ def parse_parameters(*args):
             f"{repo_stats_path}/../dashboard_template/user_stats_template_light.png",
         ]
     params["template_image"] = list(params["template_image"])
-    params["font"] = f"{repo_stats_path}/../dashboard_template/Jost[wght].ttf"
+    params["font"] = f"{repo_stats_path}/../dashboard_template/SourceSans3-Regular.ttf"
 
     return params
 
@@ -117,10 +117,38 @@ def main(*args):
     )
 
     commits = Gits.get_commits()
-    commit_stats = Gits.process_commits(commits, params["age_recent_commit"])
+    commit_stats = Gits.process_commits(
+        commits,
+        params["age_recent_commit"],
+        dedup=params.get("deduplicate_commits", False),
+    )
 
     issues = Gits.get_issues_PRs("issues")
     prs = Gits.get_issues_PRs("pullRequests")
+
+    # optionally undo the bulk closure of items imported during a migration to GitHub
+    migration = params.get("migration") or {}
+    if migration.get("bulk_close_date") is not None:
+        close_dates = {}
+        if migration.get("importer_logins"):
+            close_dates = Gits.get_migrated_close_dates(
+                migration["importer_logins"], before=migration["bulk_close_date"]
+            )
+        issues, n_issues = correct_migrated_items(
+            issues,
+            migration["bulk_close_date"],
+            close_dates,
+            migration.get("window_days", 1),
+        )
+        prs, n_prs = correct_migrated_items(
+            prs,
+            migration["bulk_close_date"],
+            close_dates,
+            migration.get("window_days", 1),
+        )
+        print(
+            f"  Corrected close dates of {n_issues} issues and {n_prs} pull requests bulk-closed during migration"
+        )
     issue_pr_stats = Gits.process_issues_PRs(
         [issues, prs],
         ["issues", "pullRequests"],
@@ -129,6 +157,9 @@ def main(*args):
     )
 
     all_stats = {**cite_stats, **commit_stats, **issue_pr_stats}
+
+    # headline numbers for the stats website (site/build.py)
+    write_summary(all_stats, params["repo_owner"], params["repo_name"], params["cache_dir"])
 
     print("\nUpdating dashboard image with stats")
     for ii in params["template_image"]:
@@ -139,22 +170,16 @@ def main(*args):
         cite_stats, params["repo_name"], params["cache_dir"], params["bib_names"]
     )
 
-    author_time_plot(
-        commit_stats,
-        params["repo_owner"],
-        params["repo_name"],
-        params["cache_dir"],
-        params["window_avg"],
-    )
-
     open_issue_PR_plot(issue_pr_stats, params["repo_name"], params["cache_dir"])
 
-    issue_PR_time_plot(
+    activity_time_plot(
+        commit_stats,
         issue_pr_stats,
         params["repo_owner"],
         params["repo_name"],
         params["cache_dir"],
         params["window_avg"],
+        github_start=migration.get("bulk_close_date"),
     )
 
 

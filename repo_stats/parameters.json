@@ -25,12 +25,22 @@
     ],
     "bibs": [
         "2019ApJS..241...27A",
-        "2020MNRAS.499.3295R"
+        "2020MNRAS.499.3295R",
+        "2021MNRAS.507.2037A"
     ],
     "bib_names": [
         "Bilby paper I (2019)",
         "Bilby paper II (2020)",
+        "Bilby MCMC (2021)",
         "All unique citations"
     ],
-    "ads_metrics": "bibcode, pubdate, pub, author, title"
+    "ads_metrics": "bibcode, pubdate, pub, author, title",
+    "deduplicate_commits": true,
+    "migration": {
+        "bulk_close_date": "2024-10-04",
+        "window_days": 1,
+        "importer_logins": [
+            "bilby-bot"
+        ]
+    }
 }

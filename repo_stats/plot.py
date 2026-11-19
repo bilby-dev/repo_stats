@@ -1,16 +1,185 @@
-from datetime import datetime, timezone
+"""
+Plots of repository and citation statistics.
 
+Every plot is drawn twice, once for light and once for dark backgrounds, using
+the palette and typography of the bilby website (https://bilby-dev.github.io).
+For a figure with stem ``<repo_name>_<plot>`` the following files are written
+to ``cache_dir``:
+
+- ``<repo_name>_<plot>.png`` / ``.svg``: light theme (white background)
+- ``<repo_name>_<plot>_dark.png`` / ``.svg``: dark theme
+"""
+
+import contextlib
+from datetime import datetime, timezone
+from pathlib import Path
+
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import font_manager
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
 from repo_stats.utilities import rolling_average
 
-ms = [".", "+", "^", "*", "x", "o"]
-cs = ["#ff8300", "#23d361", "#bf177a", "#20c8ed"]
+FONT_DIR = Path(__file__).resolve().parent.parent / "dashboard_template"
+for _font in sorted(FONT_DIR.glob("SourceSans3-*.ttf")):
+    font_manager.fontManager.addfont(str(_font))
 
-plt.rcParams['font.size'] = 11
+# Categorical series colors were validated for color-vision deficiency and
+# contrast against each theme's background. Slot 1 is the bilby brand blue.
+# Slots 4+ only appear if more than three papers are tracked.
+THEMES = {
+    "light": {
+        "suffix": "",
+        "bg": "#ffffff",
+        "ink": "#0b2540",
+        "muted": "#4b6782",
+        "grid": "#d6e4f1",
+        "axis": "#9cb6cf",
+        "series": ["#1d67b0", "#e0702c", "#13976a", "#6250d6", "#c23c7e"],
+    },
+    "dark": {
+        "suffix": "_dark",
+        "bg": "#0a1622",
+        "ink": "#e6eff8",
+        "muted": "#9db3c9",
+        "grid": "#1f3850",
+        "axis": "#2b4966",
+        "series": ["#3f8ad6", "#d9692f", "#1a9f6f", "#9085e9", "#d55181"],
+    },
+}
 
-now = datetime.now(timezone.utc).strftime("%B %d, %Y")
+# kept for backwards compatibility
+cs = THEMES["light"]["series"]
+ms = ["o", "s", "D", "^", "v", "P"]
+
+DPI = 200
+RAW_ALPHA = 0.35
+
+
+def _generated_on():
+    return datetime.now(timezone.utc).strftime("%B %d, %Y")
+
+
+@contextlib.contextmanager
+def _themed(theme):
+    """Context manager applying matplotlib rcParams for the given theme."""
+    t = THEMES[theme]
+    rc = {
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Source Sans 3", "DejaVu Sans"],
+        "font.size": 12,
+        "figure.facecolor": t["bg"],
+        "axes.facecolor": t["bg"],
+        "savefig.facecolor": t["bg"],
+        "text.color": t["ink"],
+        "axes.labelcolor": t["muted"],
+        "axes.edgecolor": t["axis"],
+        "axes.linewidth": 1.0,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.spines.left": False,
+        "axes.grid": True,
+        "axes.grid.axis": "y",
+        "axes.axisbelow": True,
+        "axes.titlesize": 16,
+        "axes.titleweight": "semibold",
+        "axes.titlelocation": "left",
+        "axes.titlecolor": t["ink"],
+        "axes.labelsize": 12,
+        "axes.prop_cycle": plt.cycler(color=t["series"]),
+        "grid.color": t["grid"],
+        "grid.linewidth": 0.8,
+        "xtick.color": t["muted"],
+        "ytick.color": t["muted"],
+        "xtick.labelcolor": t["muted"],
+        "ytick.labelcolor": t["muted"],
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 11,
+        "ytick.major.size": 0,
+        "xtick.major.size": 4,
+        "lines.linewidth": 2.2,
+        "lines.solid_capstyle": "round",
+        "lines.markersize": 7,
+        "legend.frameon": False,
+        "legend.fontsize": 11,
+        "legend.labelcolor": t["ink"],
+        "svg.fonttype": "path",
+    }
+    with plt.rc_context(rc):
+        yield t
+
+
+def _titles(ax, title, subtitle, t):
+    """Left-aligned title with a muted subtitle underneath."""
+    ax.set_title(title, pad=30)
+    ax.annotate(
+        subtitle,
+        xy=(0, 1),
+        xycoords="axes fraction",
+        xytext=(0, 10),
+        textcoords="offset points",
+        ha="left",
+        va="bottom",
+        color=t["muted"],
+        fontsize=11.5,
+    )
+
+
+def _save(fig, cache_dir, stem, t):
+    for ext in ("png", "svg"):
+        fig.savefig(f"{cache_dir}/{stem}{t['suffix']}.{ext}", dpi=DPI)
+
+
+def _render(draw, cache_dir, stem):
+    """Draw and save the figure for each theme; return the light-theme figure."""
+    figs = {}
+    for theme in THEMES:
+        with _themed(theme) as t:
+            fig = draw(t)
+            _save(fig, cache_dir, stem, t)
+        figs[theme] = fig
+    for theme, fig in figs.items():
+        if theme != "light":
+            plt.close(fig)
+    return figs["light"]
+
+
+def _to_dates(months):
+    return [datetime.strptime(str(m), "%Y-%m") for m in months]
+
+
+def _centered(x, window):
+    """Trim 'x' to align with the output of a centered rolling average."""
+    cut = window // 2
+    return x[cut : len(x) - cut]
+
+
+def _date_axis(ax):
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
+    ax.tick_params(axis="x", which="minor", length=2)
+    ax.margins(x=0.01)
+
+
+def _style_handles(t, window_avg):
+    return [
+        Line2D([], [], color=t["muted"], lw=1, alpha=0.6, label="Monthly"),
+        Line2D([], [], color=t["muted"], lw=2.2, label=f"{window_avg}-month rolling average"),
+    ]
+
+
+def _monthly_series(ax, months, values, color, window_avg, rolling=True):
+    """Plot raw monthly values (thin, faded) and their rolling average (bold)."""
+    dates = _to_dates(months)
+    ax.plot(dates, values, color=color, lw=1, alpha=RAW_ALPHA)
+    if rolling and len(values) >= window_avg:
+        roll_avg, window_avg = rolling_average(values, window_avg)
+        ax.plot(_centered(dates, window_avg), roll_avg, color=color)
+    return window_avg
 
 
 def author_time_plot(commit_stats, repo_owner, repo_name, cache_dir, window_avg=7):
@@ -33,72 +202,56 @@ def author_time_plot(commit_stats, repo_owner, repo_name, cache_dir, window_avg=
     Returns
     -------
     fig : `plt.figure` instance
-        The generated figure
+        The generated (light theme) figure
     """
     print("\nMaking figure: commit authors over time")
 
-    months, authors = commit_stats["authors_per_month"]
-    months_multi_authors, multi_authors = commit_stats["multi_authors_per_month"]
-    months_new_authors, new_authors = commit_stats["new_authors_per_month"]
-
     # don't include current month (if it's early in the month, result biased low)
-    months = months[:-1]
-    authors = authors[:-1]
-    months_multi_authors = months_multi_authors[:-1]
-    multi_authors = multi_authors[:-1]
-    months_new_authors = months_new_authors[:-1]
-    new_authors = new_authors[:-1]
+    series = [
+        ("All authors", *[x[:-1] for x in commit_stats["authors_per_month"]]),
+        ("Authors with >1 commit", *[x[:-1] for x in commit_stats["multi_authors_per_month"]]),
+        ("New authors", *[x[:-1] for x in commit_stats["new_authors_per_month"]]),
+    ]
+    if window_avg % 2 == 0:
+        window_avg -= 1
 
-    roll_avg, window_avg = rolling_average(authors, window_avg)
-    roll_avg_multi, window_avg = rolling_average(multi_authors, window_avg)
-    cut_idx = window_avg // 2
+    def draw(t):
+        fig, ax = plt.subplots(figsize=(10, 6), layout="constrained")
+        handles = []
+        for ii, (label, months, values) in enumerate(series):
+            color = t["series"][ii]
+            _monthly_series(ax, months, values, color, window_avg)
+            handles.append(Line2D([], [], color=color, label=label))
 
-    fig = plt.figure(figsize=(10, 6))
-    plt.plot(months, authors, "k", alpha=0.2, label="Authors / month")
+        _date_axis(ax)
+        ax.set_ylim(bottom=0)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_ylabel("Authors per month")
+        _titles(
+            ax,
+            f"Commit authors to {repo_owner}/{repo_name}",
+            f"Unique authors per month · generated {_generated_on()}",
+            t,
+        )
+        fig.legend(
+            handles=handles + _style_handles(t, window_avg),
+            loc="outside lower center",
+            ncol=5,
+            handlelength=1.8,
+            columnspacing=1.6,
+        )
+        return fig
 
-    plt.plot(
-        months[cut_idx:-cut_idx],
-        roll_avg,
-        "k",
-        label=f"Authors / month: {window_avg} month rolling average",
-    )
-
-    plt.plot(
-        months_multi_authors,
-        multi_authors,
-        "r",
-        alpha=0.2,
-        label="Authors with >1 commit / month",
-    )
-    plt.plot(
-        months[cut_idx:-cut_idx],
-        roll_avg_multi,
-        "r",
-        label=f"Authors with >1 commit / month: {window_avg} month rolling average",
-    )
-
-    plt.plot(months_new_authors, new_authors, cs[3], label="New authors / month")
-
-    plt.axhline(0, c="k", ls="--")
-
-    plt.xticks(ticks=months[::12], labels=[x[:4] for x in months[::12]])#, rotation=90)
-
-    plt.title(
-        f"Unique authors of commits to {repo_owner}/{repo_name} (generated on {now})"
-    )
-    plt.legend()
-    plt.xlabel(f"Date ({datetime.strptime(months[0], '%Y-%m').strftime('%B')} of each year)")
-    plt.ylabel("N")
-    plt.tight_layout()
-    plt.savefig(f"{cache_dir}/{repo_name}_authors.png", dpi=300)
-    # plt.show(block=False)
-
-    return fig
+    return _render(draw, cache_dir, f"{repo_name}_authors")
 
 
 def citation_plot(cite_stats, repo_name, cache_dir, names=None):
     """
     Plot citations to referenced papers over time.
+
+    Citations dated before a paper's publication year (as given by the first
+    four characters of its bibcode) are dropped, since these are errors in the
+    ADS database.
 
     Arguments
     ---------
@@ -114,74 +267,139 @@ def citation_plot(cite_stats, repo_name, cache_dir, names=None):
     Returns
     -------
     fig : `plt.figure` instance
-        The generated figure
+        The generated (light theme) figure
     """
     print("\nMaking figure: citations over time")
 
-    days_passed = datetime.today().month * 30.437 + datetime.today().day
+    today = datetime.now(timezone.utc)
+    this_year = today.year
+    days_in_year = 366 if this_year % 4 == 0 and (this_year % 100 != 0 or this_year % 400 == 0) else 365
+    year_frac = today.timetuple().tm_yday / days_in_year
 
-    fig = plt.figure(figsize=(10, 6))
-    for ii, xx in enumerate(cite_stats):
-        cites = cite_stats[xx]["cite_per_year"]
+    keys = list(cite_stats)
+    if names is None:
+        names = keys
+    pub_years = [int(k[:4]) for k in keys if k[:4].isdigit()]
+    first_year = min(pub_years) if pub_years else None
 
-        # remove one citation that has wrong year in ADS database
-        if names[ii] == "Astropy paper II (2018)":
-            cites[0], cites[1] = cites[0][1:], cites[1][1:]
-
-        (line,) = plt.plot(
-            cites[0][:-1],
-            cites[1][:-1],
-            marker=ms[ii],
-            c=cs[ii],
-        )
-        if names is not None:
-            line.set_label(f"{names[ii]}, N = {sum(cites[1])}")
-        if names[ii] == "All unique citations":
-            line.set_linestyle("--")
-
-        plt.plot(
-            cites[0][-1],
-            cites[1][-1],
-            marker=ms[-2],
-            c=cs[ii],
-        )
-        plt.plot(
-            cites[0][-1],
-            int(cites[1][-1] * 365 / days_passed),
-            marker=ms[-1],
-            mec=cs[ii],
-            mfc="none",
+    curves = []
+    for ii, key in enumerate(keys):
+        years, counts = (np.asarray(x) for x in cite_stats[key]["cite_per_year"])
+        min_year = int(key[:4]) if key[:4].isdigit() else first_year
+        if min_year is not None:
+            keep = years >= min_year
+            years, counts = years[keep], counts[keep]
+        full = years < this_year
+        ytd = int(counts[years == this_year].sum())
+        curves.append(
+            {
+                "name": names[ii],
+                "aggregate": key == "aggregate",
+                "years": years[full],
+                "counts": counts[full],
+                "ytd": ytd,
+                "projected": ytd / year_frac,
+                "total": int(counts.sum()),
+            }
         )
 
-    handles, _ = plt.gca().get_legend_handles_labels()
-    point0 = Line2D(
-        [0], [0], linestyle="", marker=ms[-2], label="Year-to-date", color="#a4a4a4"
-    )
-    point1 = Line2D(
-        [0],
-        [0],
-        linestyle="",
-        marker=ms[-1],
-        label="Projected (using year-to-date)",
-        markeredgecolor="#a4a4a4",
-        markerfacecolor="none",
-    )
-    handles.extend([point0, point1])
-    plt.legend(handles=handles)
+    def draw(t):
+        fig, ax = plt.subplots(figsize=(10, 6), layout="constrained")
+        handles = []
+        n_paper = 0
+        for ii, c in enumerate(curves):
+            if c["aggregate"]:
+                color, ls, marker = t["ink"], (0, (4, 2.5)), None
+            else:
+                color, ls, marker = t["series"][n_paper % len(t["series"])], "-", ms[n_paper % len(ms)]
+                n_paper += 1
+            ax.plot(
+                c["years"],
+                c["counts"],
+                color=color,
+                ls=ls,
+                marker=marker,
+                mec=t["bg"],
+                mew=1.2,
+                zorder=3,
+            )
+            if len(c["years"]):
+                # dotted segment from last complete year to this year's projection
+                ax.plot(
+                    [c["years"][-1], this_year],
+                    [c["counts"][-1], c["projected"]],
+                    color=color,
+                    ls=":",
+                    lw=1.6,
+                    zorder=2,
+                )
+            ax.plot(
+                this_year,
+                c["projected"],
+                marker=marker or "o",
+                ls="",
+                mfc=t["bg"],
+                mec=color,
+                mew=1.8,
+                zorder=4,
+            )
+            ax.plot(
+                this_year - 1 + year_frac,
+                c["ytd"],
+                marker=marker or "o",
+                ls="",
+                ms=5.5,
+                color=color,
+                alpha=0.8,
+                zorder=4,
+            )
+            handles.append(
+                Line2D(
+                    [],
+                    [],
+                    color=color,
+                    ls=ls,
+                    marker=marker,
+                    mec=t["bg"],
+                    label=f"{c['name']}: {c['total']:,}",
+                )
+            )
 
-    plt.title(f"Refereed citations to {repo_name} (via ADS) (generated on {now})")
-    plt.xlabel("Year")
-    plt.ylabel("N")
-    plt.tight_layout()
-    plt.savefig(f"{cache_dir}/{repo_name}_citations.png", dpi=300)
-    # plt.show(block=False)
+        handles += [
+            Line2D([], [], ls="", marker="o", ms=5.5, color=t["muted"], label="Year to date"),
+            Line2D(
+                [],
+                [],
+                ls=":",
+                lw=1.6,
+                marker="o",
+                mfc=t["bg"],
+                mec=t["muted"],
+                mew=1.8,
+                color=t["muted"],
+                label=f"Projected {this_year} (from year to date)",
+            ),
+        ]
 
-    return fig
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_ylim(bottom=0)
+        ax.set_ylabel("Refereed citations per year")
+        _titles(
+            ax,
+            f"Refereed citations to {repo_name}",
+            f"Data from NASA ADS · totals in legend · generated {_generated_on()}",
+            t,
+        )
+        fig.legend(handles=handles, loc="outside lower center", ncol=3, handlelength=2.4)
+        return fig
+
+    return _render(draw, cache_dir, f"{repo_name}_citations")
 
 
 def open_issue_PR_plot(issue_pr_stats, repo_name, cache_dir):
     """
-    Plot a bar chart of a repository's currently open issues and pull requests.
+    Plot a bar chart of a repository's currently open issues and pull requests, per label.
 
     Arguments
     ---------
@@ -195,35 +413,49 @@ def open_issue_PR_plot(issue_pr_stats, repo_name, cache_dir):
     Returns
     -------
     fig : `plt.figure` instance
-        The generated figure
+        The generated (light theme) figure
     """
     print("\nMaking figure: currently open issues and pull requests")
 
-    labels = issue_pr_stats["issues"]["label_open"].keys()
-    open_issues = issue_pr_stats["issues"]["label_open"].values()
-    open_prs = issue_pr_stats["pullRequests"]["label_open"].values()
+    issues = issue_pr_stats["issues"]["label_open"]
+    prs = issue_pr_stats["pullRequests"]["label_open"]
+    labels = list(issues)
+    # most open items at the top
+    labels.sort(key=lambda x: (issues[x] + prs.get(x, 0), x.lower()))
+    n_issue = np.array([issues[x] for x in labels])
+    n_pr = np.array([prs.get(x, 0) for x in labels])
 
-    fig = plt.figure(figsize=(10, 6))
+    def draw(t):
+        height = max(4.5, 0.32 * len(labels) + 2.2)
+        fig, ax = plt.subplots(figsize=(10, height), layout="constrained")
+        y = np.arange(len(labels))
+        bar_h = 0.4
+        ax.barh(y + bar_h / 2, n_issue, height=bar_h, color=t["series"][0], label="Open issues", edgecolor=t["bg"], linewidth=1)
+        ax.barh(y - bar_h / 2, n_pr, height=bar_h, color=t["series"][1], label="Open PRs", edgecolor=t["bg"], linewidth=1)
+        ax.set_yticks(y, labels, color=t["ink"])
+        ax.grid(axis="y", visible=False)
+        ax.grid(axis="x", visible=True)
+        ax.spines["bottom"].set_visible(False)
+        ax.tick_params(axis="x", length=0)
+        ax.tick_params(axis="y", length=0, pad=6)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_ylim(-0.6, len(labels) - 0.4)
+        ax.set_xlabel("Currently open")
+        _titles(
+            ax,
+            f"Open issues and PRs in {repo_name} by label",
+            f"Items with several labels are counted once per label · generated {_generated_on()}",
+            t,
+        )
+        fig.legend(loc="outside lower center", ncol=2)
+        return fig
 
-    plt.bar(labels, open_issues, color=cs[3], label="Open issues")
-    plt.bar(labels, open_prs, color="r", alpha=0.4, label="Open PRs")
-
-    plt.xticks(rotation=90)
-
-    plt.title(f"Open issues and PRs per {repo_name} subpackage (generated on {now})")
-    plt.legend()
-    plt.xlabel("Subpackage")
-    plt.ylabel("N")
-    plt.tight_layout()
-    plt.savefig(f"{cache_dir}/{repo_name}_open_items.png", dpi=300)
-    # plt.show(block=False)
-
-    return fig
+    return _render(draw, cache_dir, f"{repo_name}_open_items")
 
 
 def issue_PR_time_plot(issue_pr_stats, repo_owner, repo_name, cache_dir, window_avg=7):
     """
-    Plot a repository's number of issues and pull requests open and closed over time.
+    Plot a repository's number of issues and pull requests opened and closed over time.
 
     Arguments
     ---------
@@ -241,58 +473,197 @@ def issue_PR_time_plot(issue_pr_stats, repo_owner, repo_name, cache_dir, window_
     Returns
     -------
     fig : `plt.figure` instance
-        The generated figure
+        The generated (light theme) figure
     """
     print("\nMaking figure: issues and pull requests over time")
 
-    month_io, issue_open = issue_pr_stats["issues"]["open_per_month"]
-    month_ic, issue_close = issue_pr_stats["issues"]["close_per_month"]
-    month_po, pr_open = issue_pr_stats["pullRequests"]["open_per_month"]
-    month_pc, pr_close = issue_pr_stats["pullRequests"]["close_per_month"]
+    if window_avg % 2 == 0:
+        window_avg -= 1
 
     # don't include current month (if it's early in the month, result biased low)
-    months = [
-        month_po[:-1],
-        month_pc[:-1],
-        month_io[:-1],
-        month_ic[:-1],
-    ]
-    events = [
-        pr_open[:-1],
-        pr_close[:-1],
-        issue_open[:-1],
-        issue_close[:-1],
-    ]
-    labels = [
-        "PRs opened / month",
-        "PRs closed / month",
-        "Issues opened / month",
-        "Issues closed / month",
-    ]
-
-    fig = plt.figure(figsize=(10, 6))
-    for i, j in enumerate(events):
-        plt.plot(months[i], j, cs[i], alpha=0.2, label=labels[i])
-
-        roll_avg, window_avg = rolling_average(j, window_avg)
-        cut_idx = window_avg // 2
-        plt.plot(
-            months[i][cut_idx:-cut_idx],
-            roll_avg,
-            cs[i],
-            label=f"{labels[i]}: {window_avg} month rolling average",
+    panels = []
+    for key, title in [("pullRequests", "Pull requests"), ("issues", "Issues")]:
+        panels.append(
+            (
+                title,
+                [x[:-1] for x in issue_pr_stats[key]["open_per_month"]],
+                [x[:-1] for x in issue_pr_stats[key]["close_per_month"]],
+            )
         )
 
-    plt.xticks(ticks=months[i][::12], labels=[x[:4] for x in months[i][::12]])#, rotation=90)
+    def draw(t):
+        fig, axes = plt.subplots(
+            2, 1, figsize=(10, 7.5), sharex=True, layout="constrained"
+        )
+        for ax, (title, opened, closed) in zip(axes, panels):
+            _monthly_series(ax, *opened, t["series"][0], window_avg)
+            _monthly_series(ax, *closed, t["series"][1], window_avg)
+            ax.text(
+                0.005,
+                0.97,
+                title,
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=13,
+                fontweight="semibold",
+                color=t["ink"],
+            )
+            ax.set_ylabel("Per month")
+            ax.set_ylim(bottom=0)
+            ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+            _date_axis(ax)
+        axes[0].tick_params(axis="x", which="both", length=0)
 
-    plt.title(
-        f"Issues and PRs opened and closed in {repo_owner}/{repo_name} (generated on {now})"
+        _titles(
+            axes[0],
+            f"Issues and PRs in {repo_owner}/{repo_name}",
+            f"Opened and closed per month · generated {_generated_on()}",
+            t,
+        )
+        handles = [
+            Line2D([], [], color=t["series"][0], label="Opened"),
+            Line2D([], [], color=t["series"][1], label="Closed"),
+        ] + _style_handles(t, window_avg)
+        fig.legend(handles=handles, loc="outside lower center", ncol=4, handlelength=1.8)
+        return fig
+
+    return _render(draw, cache_dir, f"{repo_name}_issues_PRs")
+
+
+def _grey_out_before(ax, until, t, label):
+    """Fade everything plotted on 'ax' before the date 'until' and label the span."""
+    left = ax.get_xlim()[0]
+    right = mdates.date2num(until)
+    if right <= left:
+        return
+    ax.axvspan(left, right, facecolor=t["bg"], alpha=0.7, lw=0, zorder=3)
+    ax.axvspan(left, right, facecolor=t["muted"], alpha=0.08, lw=0, zorder=3)
+    ax.axvline(right, color=t["axis"], lw=1, ls=(0, (3, 3)), zorder=4)
+    ax.set_xlim(left=left)
+    ax.text(
+        (left + right) / 2,
+        0.55,
+        label,
+        transform=ax.get_xaxis_transform(),
+        ha="center",
+        va="center",
+        fontsize=11,
+        color=t["muted"],
+        zorder=5,
     )
-    plt.legend(ncol=2)
-    plt.xlabel(f"Date ({datetime.strptime(months[i][0], '%Y-%m').strftime('%B')} of each year)")
-    plt.ylabel("N")
-    plt.tight_layout()
-    plt.savefig(f"{cache_dir}/{repo_name}_issues_PRs.png", dpi=300)
-    # plt.show(block=False)
 
-    return fig
+
+def activity_time_plot(
+    commit_stats,
+    issue_pr_stats,
+    repo_owner,
+    repo_name,
+    cache_dir,
+    window_avg=7,
+    github_start=None,
+):
+    """
+    Plot pull requests, issues and commit authors over time as three stacked panels.
+
+    Arguments
+    ---------
+    commit_stats : dict
+        Commit statistics (see `git_metrics.GitMetrics.process_commits`)
+    issue_pr_stats : dict
+        Statistics for issues and pull requests (see `git_metrics.GitMetrics.process_issues_PRs`)
+    repo_owner : str
+        Owner of repository (for labels)
+    repo_name : str
+        Name of repository (for labels and figure savename)
+    cache_dir : str
+        Name of directory in which to cache figure
+    window_avg : int, default=7
+        Number of months for rolling average. Enforced to be odd.
+    github_start : str, optional
+        Date ('YYYY-MM-DD') the repository moved to GitHub. Pull requests before this
+        date are greyed out, as they were merge requests elsewhere and are not counted.
+
+    Returns
+    -------
+    fig : `plt.figure` instance
+        The generated (light theme) figure
+    """
+    print("\nMaking figure: activity over time")
+
+    if window_avg % 2 == 0:
+        window_avg -= 1
+    if github_start is not None:
+        github_start = datetime.strptime(str(github_start)[:10], "%Y-%m-%d")
+
+    # don't include current month (if it's early in the month, result biased low)
+    def trim(x):
+        return [y[:-1] for y in x]
+
+    item_panels = [
+        ("Pull requests", trim(issue_pr_stats["pullRequests"]["open_per_month"]),
+         trim(issue_pr_stats["pullRequests"]["close_per_month"])),
+        ("Issues", trim(issue_pr_stats["issues"]["open_per_month"]),
+         trim(issue_pr_stats["issues"]["close_per_month"])),
+    ]
+    author_series = [
+        ("All authors", trim(commit_stats["authors_per_month"])),
+        ("Authors with >1 commit", trim(commit_stats["multi_authors_per_month"])),
+        ("New authors", trim(commit_stats["new_authors_per_month"])),
+    ]
+
+    def panel_title(ax, title, t):
+        ax.text(
+            0.005, 0.97, title, transform=ax.transAxes, ha="left", va="top",
+            fontsize=13, fontweight="semibold", color=t["ink"], zorder=6,
+        )
+
+    def draw(t):
+        fig, axes = plt.subplots(
+            3, 1, figsize=(10, 10.5), sharex=True, layout="constrained"
+        )
+        opened_c, closed_c = t["series"][0], t["series"][1]
+        author_c = t["series"][2:5]
+
+        for ax, (title, opened, closed) in zip(axes[:2], item_panels):
+            _monthly_series(ax, *opened, opened_c, window_avg)
+            _monthly_series(ax, *closed, closed_c, window_avg)
+            panel_title(ax, title, t)
+            ax.set_ylabel("Per month")
+
+        ax = axes[2]
+        for color, (label, (months, values)) in zip(author_c, author_series):
+            _monthly_series(ax, months, values, color, window_avg)
+        panel_title(ax, "Commit authors", t)
+        ax.set_ylabel("Authors per month")
+
+        for ax in axes:
+            ax.set_ylim(bottom=0)
+            ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=5))
+            _date_axis(ax)
+        for ax in axes[:2]:
+            ax.tick_params(axis="x", which="both", length=0)
+
+        if github_start is not None:
+            _grey_out_before(axes[0], github_start, t, "Merge requests on GitLab\n(not counted)")
+
+        _titles(
+            axes[0],
+            f"Activity in {repo_owner}/{repo_name}",
+            f"Per month · generated {_generated_on()}",
+            t,
+        )
+        handles = [
+            Line2D([], [], color=opened_c, label="Opened"),
+            Line2D([], [], color=closed_c, label="Closed"),
+        ] + [
+            Line2D([], [], color=c, label=label)
+            for c, (label, _) in zip(author_c, author_series)
+        ] + _style_handles(t, window_avg)
+        fig.legend(
+            handles=handles, loc="outside lower center", ncol=4,
+            handlelength=1.8, columnspacing=1.6,
+        )
+        return fig
+
+    return _render(draw, cache_dir, f"{repo_name}_activity")

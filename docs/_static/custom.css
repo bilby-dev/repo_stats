@@ -1,9 +1,30 @@
+/* bilby theme, matching https://bilby-dev.github.io */
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Source+Serif+4:wght@600&display=swap");
+
+body, .wy-body-for-nav, .rst-content {
+  font-family: "Source Sans 3", system-ui, sans-serif;
+}
+
+h1, h2, h3, .rst-content .toctree-wrapper > p.caption {
+  font-family: "Source Serif 4", Georgia, serif;
+  color: #0f3557;
+}
+
 .wy-side-nav-search, .wy-nav-top {
-    background: #0CCF88;
-  }
+  background: #0f3557;
+}
+
+.wy-side-nav-search > a img.logo {
+  border-radius: 10px;
+  background: #ffffff;
+}
 
 .wy-menu > .caption > span.caption-text {
-color: #0CCF88;
+  color: #9cc3e4;
+}
+
+a, a:visited {
+  color: #286190;
 }
 
 .nbinput .prompt, .nboutput .prompt {
