@@ -14,6 +14,7 @@ from repo_stats.plot import (
     issue_PR_time_plot,
     open_issue_PR_plot,
 )
+from repo_stats.summary import write_summary
 from repo_stats.user_stats import StatsImage
 
 repo_stats_path = os.path.dirname(repo_stats.__file__)
@@ -157,6 +158,9 @@ def main(*args):
     )
 
     all_stats = {**cite_stats, **commit_stats, **issue_pr_stats}
+
+    # headline numbers for the stats website (site/build.py)
+    write_summary(all_stats, params["repo_owner"], params["repo_name"], params["cache_dir"])
 
     print("\nUpdating dashboard image with stats")
     for ii in params["template_image"]:
