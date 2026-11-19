@@ -23,3 +23,25 @@ and the [GitHub GraphQL API](https://docs.github.com/en/graphql/guides/forming-c
 For current output files, see the `cache` branch.
 
 
+
+Stats website
+-------------
+
+`site/build.py` turns the cache directory into a small static website (plots,
+headline numbers from `<repo_name>_summary.json`, light/dark aware) styled to
+match [bilby-dev.github.io](https://bilby-dev.github.io). Build and view it
+locally with
+
+```
+python site/build.py --cache cache --out _site
+python -m http.server --directory _site
+```
+
+The `update_stats.yml` workflow regenerates the stats daily (or on demand via
+*Run workflow*), pushes them to the `cache` branch and deploys the site to
+GitHub Pages. To enable it:
+
+1. In the repository's *Settings → Pages*, set *Source* to **GitHub Actions**.
+2. In *Settings → Secrets and variables → Actions*, add an `ADS_TOKEN`
+   repository secret holding a [NASA ADS API token](https://ui.adsabs.harvard.edu/help/api/).
+   (`GITHUB_TOKEN` is provided automatically.)
