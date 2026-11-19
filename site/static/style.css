@@ -87,7 +87,6 @@ h1, h2, h3, .wordmark { font-family: var(--serif); font-weight: 600; letter-spac
   transform: rotate(-45deg) scaleX(1.6); opacity: .7;
 }
 .hero-inner { position: relative; }
-.eyebrow { margin: 0 0 14px; font-size: .85rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--blue-500); }
 .hero h1 { margin: 0; font-size: clamp(2.4rem, 5.6vw, 4rem); color: var(--heading); }
 .lede { margin: 20px 0 8px; font-size: 1.15rem; color: var(--muted); max-width: 40em; }
 .updated { margin: 0 0 32px; font-size: .9rem; color: var(--muted); }
