@@ -1,0 +1,32 @@
+{
+  "repo_owner": "bilby-dev",
+  "repo_name": "bilby",
+  "generated": "2026-11-27T17:30:16+00:00",
+  "age_recent_commit": 90,
+  "age_recent_issue_pr": 90,
+  "n_authors": 104,
+  "n_recent_authors": 10,
+  "new_authors": [
+    "Ali B.B",
+    "Luca Cirfeta",
+    "Metha Prathaban",
+    "Milan Wils",
+    "Raghuram Devarakonda",
+    "Sanjay Santhanam"
+  ],
+  "new_author_logins": {
+    "Ali B.B": "alibb007",
+    "Luca Cirfeta": "lucacirfeta",
+    "Metha Prathaban": "mrosep",
+    "Milan Wils": "milanwils",
+    "Raghuram Devarakonda": "draghuram",
+    "Sanjay Santhanam": "Sanjays2402"
+  },
+  "issues_recent_open": 15,
+  "issues_recent_close": 14,
+  "prs_recent_open": 46,
+  "prs_recent_close": 35,
+  "cite_all": 1579,
+  "cite_year": 494,
+  "cite_month": 69
+}
